@@ -141,32 +141,174 @@ def turnSubArraysToJson(objectsArr):
 
 
 
-@application.route('/',methods=['POST'])
-def prediction():
-	global cfg
-	imagefile = PIL.Image.open(request.files['image'].stream)
-	image,w,h=myImageLoader(imagefile)
-	print(h,w)
-	scaled_image = mold_image(image, cfg)
-	sample = expand_dims(scaled_image, 0)
+# Adaptadores para diferentes formatos de salida
+class OutputAdapter:
+    @staticmethod
+    def unity_format(detection_result, w, h, average_door):
+        """Formato original para Unity"""
+        bbx = detection_result['rois'].tolist()
+        temp, avg_door = normalizePoints(bbx, detection_result['class_ids'])
+        temp = turnSubArraysToJson(temp)
+        
+        return {
+            'points': temp,
+            'classes': getClassNames(detection_result['class_ids']),
+            'Width': w,
+            'Height': h,
+            'averageDoor': avg_door
+        }
+    
+    @staticmethod
+    def web_format(detection_result, w, h, average_door):
+        """Formato optimizado para aplicaciones web"""
+        objects = []
+        bbx = detection_result['rois'].tolist()
+        class_ids = detection_result['class_ids']
+        scores = detection_result['scores']
+        
+        for i, bbox in enumerate(bbx):
+            obj = {
+                'id': i,
+                'type': ['background', 'wall', 'window', 'door'][class_ids[i]],
+                'confidence': float(scores[i]),
+                'bbox': {
+                    'x': int(bbox[1]),
+                    'y': int(bbox[0]), 
+                    'width': int(bbox[3] - bbox[1]),
+                    'height': int(bbox[2] - bbox[0])
+                },
+                'center': {
+                    'x': int((bbox[1] + bbox[3]) / 2),
+                    'y': int((bbox[0] + bbox[2]) / 2)
+                }
+            }
+            objects.append(obj)
+        
+        return {
+            'metadata': {
+                'image_width': w,
+                'image_height': h,
+                'total_objects': len(objects),
+                'average_door_size': average_door,
+                'processing_timestamp': datetime.now().isoformat()
+            },
+            'objects': objects,
+            'statistics': {
+                'walls': len([o for o in objects if o['type'] == 'wall']),
+                'windows': len([o for o in objects if o['type'] == 'window']),
+                'doors': len([o for o in objects if o['type'] == 'door'])
+            }
+        }
+    
+    @staticmethod
+    def threejs_format(detection_result, w, h, average_door):
+        """Formato específico para Three.js con coordenadas 3D básicas"""
+        objects = []
+        bbx = detection_result['rois'].tolist()
+        class_ids = detection_result['class_ids']
+        
+        # Escala para convertir a coordenadas 3D (asumiendo 1 píxel = 1cm)
+        scale_factor = 0.01
+        
+        for i, bbox in enumerate(bbx):
+            obj_type = ['background', 'wall', 'window', 'door'][class_ids[i]]
+            
+            # Coordenadas 3D básicas
+            x = (bbox[1] + bbox[3]) / 2 * scale_factor
+            z = (bbox[0] + bbox[2]) / 2 * scale_factor
+            width = (bbox[3] - bbox[1]) * scale_factor
+            depth = (bbox[2] - bbox[0]) * scale_factor
+            
+            # Altura por defecto según el tipo
+            height = 3.0 if obj_type == 'wall' else 2.0 if obj_type == 'door' else 1.5
+            
+            obj = {
+                'id': f"{obj_type}_{i}",
+                'type': obj_type,
+                'position': {'x': x, 'y': height/2, 'z': z},
+                'dimensions': {'width': width, 'height': height, 'depth': depth},
+                'rotation': {'x': 0, 'y': 0, 'z': 0}
+            }
+            objects.append(obj)
+        
+        return {
+            'scene': {
+                'name': 'FloorPlan3D',
+                'units': 'meters',
+                'bounds': {
+                    'width': w * scale_factor,
+                    'height': h * scale_factor
+                }
+            },
+            'objects': objects,
+            'camera': {
+                'position': {'x': w * scale_factor / 2, 'y': 5, 'z': h * scale_factor / 2},
+                'target': {'x': w * scale_factor / 2, 'y': 0, 'z': h * scale_factor / 2}
+            }
+        }
 
-	global _model
-	global _graph
-	with _graph.as_default():
-		r = _model.detect(sample, verbose=0)[0]
-	
-	#output_data = model_api(imagefile)
-	
-	data={}
-	bbx=r['rois'].tolist()
-	temp,averageDoor=normalizePoints(bbx,r['class_ids'])
-	temp=turnSubArraysToJson(temp)
-	data['points']=temp
-	data['classes']=getClassNames(r['class_ids'])
-	data['Width']=w
-	data['Height']=h
-	data['averageDoor']=averageDoor
-	return jsonify(data)
+@application.route('/',methods=['POST'])
+@application.route('/predict',methods=['POST'])
+def prediction():
+    """Endpoint principal con soporte para múltiples formatos de salida"""
+    global cfg
+    
+    # Obtener formato de salida del parámetro query
+    output_format = request.args.get('format', 'unity').lower()
+    
+    imagefile = PIL.Image.open(request.files['image'].stream)
+    image,w,h=myImageLoader(imagefile)
+    print(f"Image dimensions: {h}x{w}")
+    scaled_image = mold_image(image, cfg)
+    sample = expand_dims(scaled_image, 0)
+
+    global _model
+    global _graph
+    with _graph.as_default():
+        r = _model.detect(sample, verbose=0)[0]
+    
+    # Calcular puerta promedio
+    bbx = r['rois'].tolist()
+    _, average_door = normalizePoints(bbx, r['class_ids'])
+    
+    # Seleccionar adaptador según el formato solicitado
+    if output_format == 'unity':
+        data = OutputAdapter.unity_format(r, w, h, average_door)
+    elif output_format == 'web':
+        data = OutputAdapter.web_format(r, w, h, average_door)
+    elif output_format == 'threejs':
+        data = OutputAdapter.threejs_format(r, w, h, average_door)
+    else:
+        # Formato por defecto
+        data = OutputAdapter.unity_format(r, w, h, average_door)
+        data['warning'] = f"Unknown format '{output_format}', using default Unity format"
+    
+    return jsonify(data)
+
+# Endpoint adicional para obtener información sobre formatos disponibles
+@application.route('/formats', methods=['GET'])
+def get_available_formats():
+    """Devuelve información sobre los formatos de salida disponibles"""
+    return jsonify({
+        'available_formats': {
+            'unity': {
+                'description': 'Formato original para Unity',
+                'usage': 'POST /?format=unity',
+                'fields': ['points', 'classes', 'Width', 'Height', 'averageDoor']
+            },
+            'web': {
+                'description': 'Formato optimizado para aplicaciones web',
+                'usage': 'POST /?format=web',
+                'fields': ['metadata', 'objects', 'statistics']
+            },
+            'threejs': {
+                'description': 'Formato específico para Three.js con coordenadas 3D',
+                'usage': 'POST /?format=threejs',
+                'fields': ['scene', 'objects', 'camera']
+            }
+        },
+        'default_format': 'unity'
+    })
 		
     
 if __name__ =='__main__':
