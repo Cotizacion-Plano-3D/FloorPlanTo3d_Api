@@ -15,6 +15,7 @@ from mrcnn.model import MaskRCNN
 
 from skimage.draw import polygon2mask
 from skimage.io import imread
+from skimage import color
 
 from datetime import datetime
 
@@ -57,6 +58,14 @@ WEIGHTS_FILE_NAME = 'maskrcnn_15_epochs.h5'
 application=Flask(__name__)
 cors = CORS(application, resources={r"/*": {"origins": "*"}})
 
+# Configuración adicional de CORS para asegurar compatibilidad
+@application.after_request
+def after_request(response):
+    response.headers.add('Access-Control-Allow-Origin', '*')
+    response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
+    response.headers.add('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS')
+    return response
+
 
 class PredictionConfig(Config):
 	# define the name of the configuration
@@ -89,9 +98,10 @@ def myImageLoader(imageInput):
 	
 	h,w,c=image.shape 
 	if image.ndim != 3:
-		image = skimage.color.gray2rgb(image)
-		if image.shape[-1] == 4:
-			image = image[..., :3]
+		image = color.gray2rgb(image)
+	elif image.shape[-1] == 4:
+		# Convertir RGBA a RGB eliminando el canal alpha
+		image = image[..., :3]
 	return image,w,h
 
 def getClassNames(classIds):
@@ -314,5 +324,5 @@ def get_available_formats():
 if __name__ =='__main__':
 	application.debug=True
 	print('===========before running==========')
-	application.run(host='0.0.0.0', port=5000)
+	application.run(host='localhost', port=5000)
 	print('===========after running==========')

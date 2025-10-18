@@ -1,2 +1,7 @@
 weights/maskrcnn_15_epochs.h5
 __pycache__/
+web_example/
+integration_examples/
+build/
+dist/
+*.egg-info/
