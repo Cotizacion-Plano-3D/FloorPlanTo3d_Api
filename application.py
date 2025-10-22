@@ -149,6 +149,50 @@ def turnSubArraysToJson(objectsArr):
 		result.append(data)
 	return result
 
+def calcular_medidas_extraidas(detection_result, w, h, average_door):
+    """
+    Calcula las medidas extraídas del plano para cotizaciones
+    Asume que average_door representa aproximadamente 0.9 metros
+    """
+    DOOR_REAL_SIZE = 0.9  # metros
+    scale_factor = DOOR_REAL_SIZE / average_door if average_door > 0 else 0.01
+    
+    bbx = detection_result['rois'].tolist()
+    class_ids = detection_result['class_ids']
+    
+    # Calcular áreas
+    area_paredes = 0
+    area_ventanas = 0
+    perimetro_total = 0
+    
+    for i, bbox in enumerate(bbx):
+        width_px = bbox[3] - bbox[1]
+        height_px = bbox[2] - bbox[0]
+        
+        width_m = width_px * scale_factor
+        height_m = height_px * scale_factor
+        area = width_m * height_m
+        
+        if class_ids[i] == 1:  # wall
+            area_paredes += area
+            perimetro_total += 2 * (width_m + height_m)
+        elif class_ids[i] == 2:  # window
+            area_ventanas += area
+    
+    # Calcular área total del plano
+    area_total_m2 = (w * scale_factor) * (h * scale_factor)
+    
+    return {
+        "area_total_m2": round(area_total_m2, 2),
+        "area_paredes_m2": round(area_paredes, 2),
+        "area_ventanas_m2": round(area_ventanas, 2),
+        "perimetro_total_m": round(perimetro_total, 2),
+        "escala_calculada": round(scale_factor, 4),
+        "num_puertas": len([c for c in class_ids if c == 3]),
+        "num_ventanas": len([c for c in class_ids if c == 2]),
+        "num_paredes": len([c for c in class_ids if c == 1])
+    }
+
 
 
 # Adaptadores para diferentes formatos de salida
@@ -241,6 +285,9 @@ class OutputAdapter:
             }
             objects.append(obj)
         
+        # Calcular medidas extraídas
+        medidas = calcular_medidas_extraidas(detection_result, w, h, average_door)
+        
         return {
             'scene': {
                 'name': 'FloorPlan3D',
@@ -254,19 +301,21 @@ class OutputAdapter:
             'camera': {
                 'position': {'x': w * scale_factor / 2, 'y': 5, 'z': h * scale_factor / 2},
                 'target': {'x': w * scale_factor / 2, 'y': 0, 'z': h * scale_factor / 2}
-            }
+            },
+            'medidas_extraidas': medidas
         }
 
 @application.route('/',methods=['POST'])
 @application.route('/predict',methods=['POST'])
+@application.route('/convert',methods=['POST'])
 def prediction():
     """Endpoint principal con soporte para múltiples formatos de salida"""
     global cfg
     
     # Obtener formato de salida del parámetro query
-    output_format = request.args.get('format', 'unity').lower()
+    output_format = request.args.get('format', 'threejs').lower()  # threejs por defecto
     
-    imagefile = PIL.Image.open(request.files['image'].stream)
+    imagefile = PIL.Image.open(request.files['image'].stream if 'image' in request.files else request.files['file'].stream)
     image,w,h=myImageLoader(imagefile)
     print(f"Image dimensions: {h}x{w}")
     scaled_image = mold_image(image, cfg)
@@ -295,6 +344,37 @@ def prediction():
     
     return jsonify(data)
 
+# @application.route('/render-from-json', methods=['POST'])
+# def render_from_json():
+#     """
+#     Endpoint para re-renderizar modelo 3D desde datos_json previamente procesados.
+#     Esto permite visualizar modelos ya procesados sin volver a analizar la imagen.
+#     """
+#     try:
+#         if not request.is_json:
+#             return jsonify({'error': 'Content-Type must be application/json'}), 400
+        
+#         data = request.get_json()
+        
+#         if 'datos_json' not in data:
+#             return jsonify({'error': 'Missing datos_json field'}), 400
+        
+#         datos_json = data['datos_json']
+        
+#         # Validar que tenga la estructura esperada
+#         if 'scene' not in datos_json or 'objects' not in datos_json:
+#             return jsonify({'error': 'Invalid datos_json structure'}), 400
+        
+#         # Agregar timestamp de re-renderizado
+#         datos_json['metadata'] = datos_json.get('metadata', {})
+#         datos_json['metadata']['re_rendered_at'] = datetime.now().isoformat()
+#         datos_json['metadata']['rendering_type'] = 'from_cache'
+        
+#         return jsonify(datos_json)
+        
+#     except Exception as e:
+#         return jsonify({'error': f'Error processing request: {str(e)}'}), 500
+
 # Endpoint adicional para obtener información sobre formatos disponibles
 @application.route('/formats', methods=['GET'])
 def get_available_formats():
@@ -314,10 +394,14 @@ def get_available_formats():
             'threejs': {
                 'description': 'Formato específico para Three.js con coordenadas 3D',
                 'usage': 'POST /?format=threejs',
-                'fields': ['scene', 'objects', 'camera']
+                'fields': ['scene', 'objects', 'camera', 'medidas_extraidas']
             }
         },
-        'default_format': 'unity'
+        'default_format': 'threejs',
+        'endpoints': {
+            '/convert': 'Convierte imagen de plano a modelo 3D',
+            '/render-from-json': 'Re-renderiza modelo 3D desde datos_json previamente procesados'
+        }
     })
 		
     
