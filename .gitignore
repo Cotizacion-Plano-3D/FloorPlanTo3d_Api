@@ -1,7 +1,84 @@
+# Archivos de modelo específicos
 weights/maskrcnn_15_epochs.h5
+
+# Python
 __pycache__/
-web_example/
-integration_examples/
-build/
-dist/
-*.egg-info/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+develop-eggs/
+
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+
+.installed.cfg
+*.egg
+MANIFEST
+
+# Entornos virtuales
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+.venv/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# Archivos de configuración local
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Logs
+*.log
+logs/
+
+# Archivos temporales
+*.tmp
+*.temp
+.DS_Store
+Thumbs.db
+
+# Archivos de datos grandes
+*.h5
+*.hdf5
+*.pkl
+*.pickle
+*.npy
+*.npz
+
+# Directorios de ejemplo y documentación
+
+
+# Archivos de sistema
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Archivos de configuración específicos del proyecto
+config.ini
+settings.json
