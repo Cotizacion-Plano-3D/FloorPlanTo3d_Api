@@ -11,9 +11,12 @@ FloorPlanTo3D showcases the robust capability to detect and interpret floor plan
 
 FloorPlanTo3D is structured into two main parts:
 
-1.  **Mask R-CNN Model Wrapped by REST API**: A sophisticated deep learning model that analyzes and interprets 2D floor plan images.
+1.  **Mask R-CNN Model Wrapped by REST API**: A sophisticated deep learning model that analyzes and interprets 2D floor plan images. **Now supports multiple output formats for different frontend technologies.**
 
-2.  **Unity Application**: A dynamic application that utilizes the API to construct a 3D scene from the analyzed 2D floor plan images, enabling users to customize their virtual environment.
+2.  **Frontend Applications**: 
+    - **Unity Application**: The original dynamic application that constructs 3D scenes
+    - **Web Frontend**: New web-based interface with modern UI
+    - **Adaptable Output**: API can be consumed by any frontend (React, Vue, Three.js, etc.)
 
 ## Installation
 
@@ -58,7 +61,11 @@ python application.py
 
 ```
 
-These steps will prepare your environment for using the API. While the API can be accessed with any client, for a fully integrated experience, we recommend using our Unity application, located in the Unity directory (Unity engine installation required).
+These steps will prepare your environment for using the API. The API now supports multiple output formats and can be integrated with various frontend technologies:
+
+- **Unity Client**: [Our Unity Client](https://github.com/fadyazizz/FloorPlanTo3D-unityClient) (Unity engine installation required)
+- **Web Frontend**: See `web_example/` directory for a complete web interface
+- **Custom Integration**: Use any of the available output formats for your preferred frontend
 
 ## Customization Features, download from this link [Our Unity Client](https://github.com/fadyazizz/FloorPlanTo3D-unityClient)
 
@@ -101,6 +108,77 @@ The model training process involved the following key steps:
 - **Training**: Conducted over 15 epochs with a batch size of 1, completed in approximately 40 hours, to detect three classes of objects: walls, windows, and doors.
 
 For an in-depth exploration of the project, refer to the bachelor's thesis available at: [Bachelor Thesis Link](https://drive.google.com/file/d/11xyyv_jUtbEp0WM-ymfffnzX45ryDV0X/view?usp=sharing).
+
+## 🔧 API Usage & Output Formats
+
+The API now supports multiple output formats to accommodate different frontend technologies:
+
+### Available Endpoints
+
+- `POST /` or `POST /predict` - Main prediction endpoint
+- `GET /formats` - Get information about available output formats
+
+### Output Formats
+
+#### 1. Unity Format (Default)
+```bash
+curl -X POST -F "image=@floorplan.jpg" "http://localhost:5000/?format=unity"
+```
+
+#### 2. Web Format (Optimized for web applications)
+```bash
+curl -X POST -F "image=@floorplan.jpg" "http://localhost:5000/?format=web"
+```
+
+#### 3. Three.js Format (3D scene data)
+```bash
+curl -X POST -F "image=@floorplan.jpg" "http://localhost:5000/?format=threejs"
+```
+
+### Integration Examples
+
+#### JavaScript/Web
+```javascript
+const analyzeFloorPlan = async (imageFile, format = 'web') => {
+  const formData = new FormData();
+  formData.append('image', imageFile);
+  
+  const response = await fetch(`http://localhost:5000/predict?format=${format}`, {
+    method: 'POST',
+    body: formData
+  });
+  
+  return await response.json();
+};
+```
+
+#### Python
+```python
+import requests
+
+def analyze_floorplan(image_path, format='web'):
+    with open(image_path, 'rb') as f:
+        files = {'image': f}
+        response = requests.post(f'http://localhost:5000/predict?format={format}', files=files)
+    return response.json()
+```
+
+#### cURL
+```bash
+# Analyze with web format
+curl -X POST -F "image=@your_floorplan.jpg" "http://localhost:5000/predict?format=web"
+
+# Get available formats
+curl -X GET "http://localhost:5000/formats"
+```
+
+### Web Example
+Run the included web example:
+```bash
+cd web_example
+python -m http.server 8080
+# Open http://localhost:8080 in your browser
+```
 
 ## Author
 
