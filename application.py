@@ -1,6 +1,7 @@
 import os
 import PIL
 import numpy
+import math
 
 
 from numpy.lib.function_base import average
@@ -256,51 +257,145 @@ class OutputAdapter:
     
     @staticmethod
     def threejs_format(detection_result, w, h, average_door):
-        """Formato específico para Three.js con coordenadas 3D básicas"""
+        """
+        Formato específico para Three.js con coordenadas 3D.
+        
+        IMPORTANTE: Replica EXACTAMENTE la lógica de Unity:
+        - Unity usa: scale = 1 / average_door (sin conversión a metros)
+        - Mapea coordenadas: bbox_x → Z, bbox_y → X
+        - Detecta orientación horizontal/vertical
+        - Aplica rotaciones correctas
+        
+        NOTA: Las unidades son relativas, no métricas. Unity no convierte a metros reales.
+        """
         objects = []
         bbx = detection_result['rois'].tolist()
         class_ids = detection_result['class_ids']
         
-        # Escala para convertir a coordenadas 3D (asumiendo 1 píxel = 1cm)
-        scale_factor = 0.01
+        # ESCALA EXACTA COMO UNITY
+        # Unity: xScale = yScale = 1 / averageDoor
+        # NO hay conversión a metros, son unidades Unity
+        scale_factor = 1.0 / average_door if average_door > 0 else 0.01
         
         for i, bbox in enumerate(bbx):
             obj_type = ['background', 'wall', 'window', 'door'][class_ids[i]]
             
-            # Coordenadas 3D básicas
-            x = (bbox[1] + bbox[3]) / 2 * scale_factor
-            z = (bbox[0] + bbox[2]) / 2 * scale_factor
-            width = (bbox[3] - bbox[1]) * scale_factor
-            depth = (bbox[2] - bbox[0]) * scale_factor
+            # bbox format: [y1, x1, y2, x2] (row, col, row, col)
+            y1, x1, y2, x2 = bbox[0], bbox[1], bbox[2], bbox[3]
             
-            # Altura por defecto según el tipo
-            height = 3.0 if obj_type == 'wall' else 2.0 if obj_type == 'door' else 1.5
+            # Calcular centro y dimensiones en píxeles
+            x_center_px = (x1 + x2) / 2
+            y_center_px = (y1 + y2) / 2
+            x_diff_px = abs(x2 - x1)
+            y_diff_px = abs(y2 - y1)
+            
+            # Detectar orientación (igual que Unity)
+            # 'h' = horizontal (ancho en X), 'v' = vertical (ancho en Y)
+            is_horizontal = x_diff_px > y_diff_px
+            
+            # MAPEO DE COORDENADAS (EXACTO como Unity)
+            # Unity: new Vector3(yCenter * yScale, height, xCenter * xScale)
+            # Three.js usa: (X, Y, Z) donde Y es altura
+            position_x = y_center_px * scale_factor  # Y del plano → X en Three.js
+            position_z = x_center_px * scale_factor  # X del plano → Z en Three.js
+            
+            # ALTURA según tipo de objeto (EXACTO como Unity)
+            if obj_type == 'wall':
+                wall_height = 2.5  # Unity: 2.5 unidades
+                position_y = 1.25  # Unity: Y = 1.25 (centro de pared)
+            elif obj_type == 'door':
+                wall_height = 2.0  # Altura de puerta
+                position_y = 1.0   # Unity: Y = 1m
+            elif obj_type == 'window':
+                wall_height = 1.5  # Altura de ventana
+                position_y = 0.0   # Unity: Y = 0 (nivel del suelo)
+            else:
+                wall_height = 2.5
+                position_y = 1.25
+            
+            # DIMENSIONES con escala correcta
+            # CRÍTICO: Rotación 90° en Y transforma los ejes así:
+            #   X_local → Z_mundo  (el eje X local se convierte en Z después de rotar)
+            #   Z_local → -X_mundo (el eje Z local se convierte en X después de rotar)
+            #
+            # Unity construye vértices directamente: Vector3(y, height, x)
+            #   Para pared vertical: X va de y1 a y2 (largo), Z va de x1 a x2 (grosor)
+            #
+            # Para Three.js rotado 90°, necesitamos que DESPUÉS de rotar:
+            #   - Tamaño en X mundo = y_diff (largo de la pared)
+            #   - Tamaño en Z mundo = x_diff (grosor de la pared)
+            #
+            # Como Z_local → X_mundo, entonces Z_local debe ser y_diff
+            # Como X_local → Z_mundo, entonces X_local debe ser x_diff
+            
+            if is_horizontal:
+                # Sin rotación: mapeo directo
+                dim_width = x_diff_px * scale_factor   # X local = X mundo
+                dim_depth = y_diff_px * scale_factor   # Z local = Z mundo
+                rotation_y = 0
+            else:
+                # Con rotación 90°: invertir width/depth para compensar
+                dim_width = x_diff_px * scale_factor   # X local → Z mundo (grosor)
+                dim_depth = y_diff_px * scale_factor   # Z local → X mundo (largo)
+                rotation_y = math.pi / 2
+            
+            # Ajustar dimensiones mínimas para visibilidad
+            # Unity también tiene dimensiones mínimas implícitas
+            min_depth = 0.15 * scale_factor * average_door if obj_type == 'wall' else 0.1 * scale_factor * average_door
+            dim_depth = max(dim_depth, min_depth)
             
             obj = {
                 'id': f"{obj_type}_{i}",
                 'type': obj_type,
-                'position': {'x': x, 'y': height/2, 'z': z},
-                'dimensions': {'width': width, 'height': height, 'depth': depth},
-                'rotation': {'x': 0, 'y': 0, 'z': 0}
+                'position': {
+                    'x': float(position_x), 
+                    'y': float(position_y), 
+                    'z': float(position_z)
+                },
+                'dimensions': {
+                    'width': float(dim_width), 
+                    'height': float(wall_height), 
+                    'depth': float(dim_depth)
+                },
+                'rotation': {
+                    'x': 0, 
+                    'y': float(rotation_y), 
+                    'z': 0
+                }
             }
             objects.append(obj)
         
-        # Calcular medidas extraídas
+        # Calcular medidas extraídas (en unidades reales con conversión)
+        DOOR_REAL_SIZE_METERS = 0.9
+        scale_to_meters = DOOR_REAL_SIZE_METERS / average_door if average_door > 0 else 0.01
         medidas = calcular_medidas_extraidas(detection_result, w, h, average_door)
+        
+        # Calcular bounds de la escena (con mapeo correcto)
+        # Recordar: bbox_y → X en Three.js, bbox_x → Z en Three.js
+        scene_width_in_meters = h * scale_factor   # Altura de imagen → ancho de escena en X
+        scene_height_in_meters = w * scale_factor  # Ancho de imagen → profundidad de escena en Z
         
         return {
             'scene': {
                 'name': 'FloorPlan3D',
                 'units': 'meters',
                 'bounds': {
-                    'width': w * scale_factor,
-                    'height': h * scale_factor
+                    'width': float(scene_width_in_meters),   # Dimensión en X
+                    'height': float(scene_height_in_meters)  # Dimensión en Z
                 }
             },
             'objects': objects,
             'camera': {
-                'position': {'x': w * scale_factor / 2, 'y': 5, 'z': h * scale_factor / 2},
-                'target': {'x': w * scale_factor / 2, 'y': 0, 'z': h * scale_factor / 2}
+                'position': {
+                    'x': float(scene_width_in_meters / 2), 
+                    'y': 5.0, 
+                    'z': float(scene_height_in_meters / 2)
+                },
+                'target': {
+                    'x': float(scene_width_in_meters / 2), 
+                    'y': 0.0, 
+                    'z': float(scene_height_in_meters / 2)
+                }
             },
             'medidas_extraidas': medidas
         }
