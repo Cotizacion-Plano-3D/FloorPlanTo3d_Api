@@ -12,7 +12,6 @@ RUN apt-get update && apt-get install -y \
     libxext6 \
     libxrender-dev \
     libgomp1 \
-    libgthread-2.0-0 \
     && rm -rf /var/lib/apt/lists/*
 
 # Copiar requirements.txt primero para aprovechar el cache de Docker
