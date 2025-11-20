@@ -642,7 +642,13 @@ def get_available_formats():
 		
     
 if __name__ =='__main__':
-	application.debug=True
+	# Configuración para Railway: usar variables de entorno
+	port = int(os.environ.get('PORT', 5000))
+	debug = os.environ.get('FLASK_DEBUG', 'False').lower() == 'true'
+	host = os.environ.get('HOST', '0.0.0.0')
+	
+	application.debug = debug
 	print('===========before running==========')
-	application.run(host='localhost', port=5000)
+	print(f'Starting server on {host}:{port}')
+	application.run(host=host, port=port)
 	print('===========after running==========')
