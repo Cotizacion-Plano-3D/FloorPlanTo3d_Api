@@ -12,6 +12,7 @@ RUN apt-get update && apt-get install -y \
     libxext6 \
     libxrender-dev \
     libgomp1 \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
 # Copiar requirements.txt primero para aprovechar el cache de Docker
@@ -26,6 +27,20 @@ COPY . .
 
 # Crear directorio para logs si no existe
 RUN mkdir -p logs
+
+# Crear directorio para weights si no existe
+RUN mkdir -p weights
+
+# Descargar el modelo de pesos desde Google Drive si no existe
+# Usando gdown para descargar desde Google Drive
+RUN pip install --no-cache-dir gdown && \
+    if [ ! -f "weights/maskrcnn_15_epochs.h5" ]; then \
+        echo "Descargando modelo de pesos desde Google Drive..." && \
+        gdown --id 14fDV0b_sKDg0_DkQBTyO1UaT6mHrW9es -O weights/maskrcnn_15_epochs.h5 || \
+        echo "ADVERTENCIA: No se pudo descargar el modelo. Asegúrate de que el archivo esté disponible."; \
+    else \
+        echo "Modelo de pesos ya existe, omitiendo descarga."; \
+    fi
 
 # Exponer el puerto (Railway asignará el puerto automáticamente)
 EXPOSE 5000
